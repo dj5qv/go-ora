@@ -861,15 +861,32 @@ func (session *Session) HasError() bool {
 
 // GetError Return the error in form or OracleError
 func (session *Session) GetError() *OracleError {
-	err := &OracleError{}
-	if session.HasError() {
-		err.ErrCode = session.Summary.RetCode
-		if session.StrConv != nil {
-			err.ErrMsg = session.StrConv.Decode(session.Summary.ErrorMessage)
-		} else {
-			err.ErrMsg = string(session.Summary.ErrorMessage)
-		}
-		err.errPos = session.Summary.errorPos
+	if !session.HasError() {
+		return &OracleError{}
+	}
+	return session.summaryError()
+}
+
+// GetNoDataFoundError returns ORA-01403 (no data found) of the last call as an
+// error, or nil if the call did not end with it. HasError and GetError ignore
+// ORA-01403 because it also marks the end of the data of a query.
+func (session *Session) GetNoDataFoundError() *OracleError {
+	if session.Summary == nil || session.Summary.RetCode != 1403 {
+		return nil
+	}
+	return session.summaryError()
+}
+
+// summaryError builds the error reported in the summary of the last call.
+func (session *Session) summaryError() *OracleError {
+	err := &OracleError{
+		ErrCode: session.Summary.RetCode,
+		errPos:  session.Summary.errorPos,
+	}
+	if session.StrConv != nil {
+		err.ErrMsg = session.StrConv.Decode(session.Summary.ErrorMessage)
+	} else {
+		err.ErrMsg = string(session.Summary.ErrorMessage)
 	}
 	return err
 }

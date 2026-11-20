@@ -1031,7 +1031,25 @@ func (stmt *defaultStmt) read(resultSet *ResultSet) (err error) {
 	if stmt.connection.tracer.IsOn() {
 		resultSet.Trace(stmt.connection.tracer)
 	}
+	if err := stmt.plsqlNoDataFoundError(); err != nil {
+		return err
+	}
 	// return stmt.readLobs(dataSet)
+	return nil
+}
+
+// plsqlNoDataFoundError returns ORA-01403 (no data found) if the statement is a
+// PL/SQL block and its call ended with it. Session.HasError ignores ORA-01403
+// because it also marks the end of the data of a query, but for a PL/SQL block
+// it is an unhandled NO_DATA_FOUND, which must be returned like any other
+// error. Call it right after the summary of the execution has been read.
+func (stmt *defaultStmt) plsqlNoDataFoundError() error {
+	if stmt.stmtType != PLSQL {
+		return nil
+	}
+	if oraErr := stmt.connection.session.GetNoDataFoundError(); oraErr != nil {
+		return oraErr
+	}
 	return nil
 }
 
@@ -1239,6 +1257,9 @@ func (stmt *Stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (dr
 			}
 		}
 		err = stmt.connection.read()
+		if err == nil {
+			err = stmt.plsqlNoDataFoundError()
+		}
 		session := stmt.connection.session
 		if session.Summary != nil {
 			stmt.cursorID = session.Summary.CursorID
@@ -1827,6 +1848,9 @@ func (stmt *Stmt) Exec(args []driver.Value) (driver.Result, error) {
 	}
 	if errors.Is(err, network.ErrConnReset) {
 		err = stmt.connection.read()
+		if err == nil {
+			err = stmt.plsqlNoDataFoundError()
+		}
 		session := stmt.connection.session
 		if session.Summary != nil {
 			stmt.cursorID = session.Summary.CursorID
@@ -1943,6 +1967,9 @@ func (stmt *Stmt) Query_(namedArgs []driver.NamedValue) (*DataSet, error) {
 	dataSet, err := stmt._query()
 	if errors.Is(err, network.ErrConnReset) {
 		err = stmt.connection.read()
+		if err == nil {
+			err = stmt.plsqlNoDataFoundError()
+		}
 		session := stmt.connection.session
 		if session.Summary != nil {
 			stmt.cursorID = session.Summary.CursorID
